@@ -7,6 +7,8 @@ import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
+import android.graphics.RadialGradient
+import android.graphics.Shader
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -107,9 +109,9 @@ class WallService : WallpaperService() {
         }
 
         private val keys = arrayOf(
-            floatArrayOf(0f, .40f, .48f, .80f), floatArrayOf(5f, .55f, .60f, .85f), floatArrayOf(7f, 1f, .85f, .75f),
+            floatArrayOf(0f, .66f, .72f, .90f), floatArrayOf(5f, .75f, .78f, .92f), floatArrayOf(7f, 1f, .85f, .75f),
             floatArrayOf(10f, 1f, 1f, 1f), floatArrayOf(16f, 1f, 1f, 1f), floatArrayOf(18.5f, 1f, .78f, .62f),
-            floatArrayOf(20.5f, .60f, .58f, .82f), floatArrayOf(24f, .40f, .48f, .80f)
+            floatArrayOf(20.5f, .78f, .76f, .92f), floatArrayOf(24f, .66f, .72f, .90f)
         )
 
         private fun filter(): ColorMatrixColorFilter {
@@ -122,11 +124,14 @@ class WallService : WallpaperService() {
                 break
             }
             val d = when (wx) { 2 -> .92f; 3 -> .78f; 4 -> .88f; 5 -> .9f; else -> 1f }
-            return ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+            val cm = ColorMatrix(floatArrayOf(
                 rgb[0] * d, 0f, 0f, 0f, 0f,
                 0f, rgb[1] * d, 0f, 0f, 0f,
                 0f, 0f, rgb[2] * d, 0f, 0f,
-                0f, 0f, 0f, 1f, 0f)))
+                0f, 0f, 0f, 1f, 0f))
+            val sat = ColorMatrix().apply { setSaturation(when (wx) { 2 -> .6f; 3 -> .5f; 4 -> .6f; 5 -> .5f; else -> 1f }) }
+            cm.postConcat(sat)
+            return ColorMatrixColorFilter(cm)
         }
 
         private fun draw() {
@@ -157,9 +162,31 @@ class WallService : WallpaperService() {
                 hazePaint.alpha = when (wx) { 5 -> 255; 2 -> 110; 3 -> 90; 4 -> 80; else -> 0 }
                 if (hazePaint.alpha > 0) layer(c, it, ox + tx * 6, oy + ty * 6, s, hazePaint)
             }
+            clouds(c, w)
             particles(c, w, hh, 0, n / 2)
             fg?.let { layer(c, it, ox + tx * 18, oy + ty * 18, s, paint) }
             particles(c, w, hh, n / 2, n)
+        }
+
+        private val cx = floatArrayOf(.1f, .4f, .7f, .95f, .25f, .6f, .85f)
+        private val cy = floatArrayOf(.06f, .12f, .04f, .16f, .22f, .28f, .02f)
+        private val cr = floatArrayOf(.45f, .55f, .5f, .4f, .35f, .4f, .3f)
+        private var cp: Array<Paint>? = null
+
+        private fun clouds(c: Canvas, w: Float) {
+            val k = when (wx) { 2 -> 1f; 3, 4 -> 1.2f; 5 -> .6f; else -> return }
+            val ps = cp ?: Array(cx.size) { i ->
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = RadialGradient(0f, 0f, cr[i] * w, intArrayOf(0xFFD5DCE4.toInt(), 0x00D5DCE4), null, Shader.TileMode.CLAMP)
+                }
+            }.also { cp = it }
+            val t = (System.currentTimeMillis() % 600_000L) / 600_000f
+            for (i in cx.indices) {
+                val x = ((cx[i] + t * (0.4f + i * 0.05f)) % 1.3f - 0.15f) * w
+                ps[i].alpha = (210 * k).toInt().coerceAtMost(255)
+                ps[i].colorFilter = cf
+                c.save(); c.translate(x, cy[i] * c.height); c.drawCircle(0f, 0f, cr[i] * w, ps[i]); c.restore()
+            }
         }
 
         private fun particles(c: Canvas, w: Float, hh: Float, from: Int, to: Int) {
