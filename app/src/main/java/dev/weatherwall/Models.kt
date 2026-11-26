@@ -18,12 +18,12 @@ import kotlin.math.sqrt
 
 /** Downloads two small ONNX models once, then builds a "scene" (photo + foreground cut-out + depth haze). */
 object Models {
-    // Depth Anything V2 Small (Apache-2.0), int8, ~27 MB
-    private const val DEPTH_URL = "https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/main/onnx/model_int8.onnx"
+    // Depth Anything V2 Small (Apache-2.0), int8, ~99 MB
+    private const val DEPTH_URL = "https://huggingface.co/onnx-community/depth-anything-v2-small/resolve/main/onnx/model.onnx"
     // U2-Net-P (Apache-2.0), ~4.6 MB, md5 8e83ca70e441ab06c318d82300c84806
     private const val SEG_URL = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx"
 
-    private fun depthFile(c: Context) = File(c.filesDir, "depth.onnx")
+    private fun depthFile(c: Context) = File(c.filesDir, "depth32.onnx")
     private fun segFile(c: Context) = File(c.filesDir, "u2netp.onnx")
     fun ready(c: Context) = depthFile(c).length() > 1_000_000 && segFile(c).length() > 1_000_000
 
