@@ -7,10 +7,12 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.LinearGradient
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffColorFilter
+import android.graphics.PorterDuffXfermode
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
@@ -26,6 +28,7 @@ import java.io.File
 import java.net.URL
 import java.util.Calendar
 import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.sin
@@ -70,6 +73,57 @@ private fun softSprite(sz: Int): Bitmap {
     return b
 }
 
+/** Irregular fluffy flake: a cluster of small soft blobs, not a perfect disc. */
+private fun clumpSprite(sz: Int, seed: Int, blur: Boolean): Bitmap {
+    val b = Bitmap.createBitmap(sz, sz, Bitmap.Config.ARGB_8888)
+    val cv = Canvas(b)
+    val r = Random(seed)
+    val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    if (blur) p.alpha = 170
+    val cx = sz / 2f
+    val parts = 7 + r.nextInt(6)
+    for (k in 0 until parts) {
+        val a = r.nextFloat() * 6.2832f
+        val d = r.nextFloat() * sz * 0.22f
+        val px = cx + cos(a) * d * 1.3f
+        val py = cx + sin(a) * d
+        val rad = sz * (0.07f + r.nextFloat() * 0.12f) * (if (blur) 1.8f else 1f)
+        val inner = if (blur) 0.15f else 0.55f
+        p.shader = RadialGradient(px, py, rad,
+            intArrayOf(0xFFFFFFFF.toInt(), 0xF0FFFFFF.toInt(), 0x00FFFFFF), floatArrayOf(0f, inner, 1f), Shader.TileMode.CLAMP)
+        cv.drawCircle(px, py, rad, p)
+    }
+    return b
+}
+
+/** Out-of-focus lens disc: faint body, brighter rim. */
+private fun bokehSprite(sz: Int): Bitmap {
+    val b = Bitmap.createBitmap(sz, sz, Bitmap.Config.ARGB_8888)
+    val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        shader = RadialGradient(sz / 2f, sz / 2f, sz / 2f,
+            intArrayOf(0x30FFFFFF, 0x38FFFFFF, 0xA0FFFFFF.toInt(), 0x00FFFFFF), floatArrayOf(0f, 0.78f, 0.92f, 1f), Shader.TileMode.CLAMP)
+    }
+    Canvas(b).drawCircle(sz / 2f, sz / 2f, sz / 2f, p)
+    return b
+}
+
+private fun hash01(x: Int, y: Int): Float {
+    var h = x * 374761393 + y * 668265263
+    h = (h xor (h ushr 13)) * 1274126177
+    h = h xor (h ushr 16)
+    return (h and 0xFFFF) / 65535f
+}
+
+private fun crispSprite(sz: Int): Bitmap {
+    val b = Bitmap.createBitmap(sz, sz, Bitmap.Config.ARGB_8888)
+    val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        shader = RadialGradient(sz / 2f, sz / 2f, sz / 2f,
+            intArrayOf(0xFFFFFFFF.toInt(), 0xF2FFFFFF.toInt(), 0x00FFFFFF), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+    }
+    Canvas(b).drawCircle(sz / 2f, sz / 2f, sz / 2f, p)
+    return b
+}
+
 /** Live wallpaper: photo + cut-out foreground + depth haze + animated rain / snow / fog / clouds / sun. */
 class WallService : WallpaperService() {
     override fun onCreateEngine(): Engine = E()
@@ -92,8 +146,14 @@ class WallService : WallpaperService() {
         private var cfAt = -10f
         private var day = 1f
         private val rnd = Random(7)
-        private val flake = softSprite(64)
-        private val warm = PorterDuffColorFilter(0xFFFFE2A8.toInt(), PorterDuff.Mode.SRC_IN)
+        private val sharpSet = Array(4) { clumpSprite(48, 100 + it, false) }
+        private val blurSet = Array(3) { clumpSprite(64, 200 + it, true) }
+        private val bokehS = bokehSprite(96)
+        private val groundP = Paint()
+        private val frostTex by lazy { Noise.make(128, 21, .36f, .68f) }
+        private val frostSh by lazy { BitmapShader(frostTex, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT) }
+        private var cap: Bitmap? = null
+        private val fadeP = Paint()
         private val fogTex by lazy { Noise.make(128, 3, .30f, .75f) }
         private val cloudTex by lazy { Noise.make(128, 9, .42f, .62f) }
         private val fogA by lazy { BitmapShader(fogTex, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT) }
@@ -109,19 +169,20 @@ class WallService : WallpaperService() {
         private val glowP = Paint()
         private val spriteP = Paint(Paint.FILTER_BITMAP_FLAG)
         private val pp = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND }
-        private val n = 140
+        private val n = 320
         private val ax = FloatArray(n) { rnd.nextFloat() }
         private val ay = FloatArray(n) { rnd.nextFloat() }
         private val az = FloatArray(n) { rnd.nextFloat() }
         private val ph = FloatArray(n) { rnd.nextFloat() * 6.28f }
-        private val lx = FloatArray(14)
-        private val ly = FloatArray(14)
-        private val lt = FloatArray(14)
 
         override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
             super.onSurfaceChanged(holder, format, width, height)
             sw = width; sh = height; stamp = -1L
             glowP.shader = RadialGradient(sw * 0.15f, -sh * 0.02f, sw * 1.2f, 0xCCFFE9B8.toInt(), 0x00FFE9B8, Shader.TileMode.CLAMP)
+            fadeP.shader = LinearGradient(0f, 0f, 0f, sh * 0.56f, 0xFFFFFFFF.toInt(), 0x00FFFFFF, Shader.TileMode.CLAMP)
+            fadeP.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
+            groundP.shader = LinearGradient(0f, sh * 0.5f, 0f, sh.toFloat(), 0x00FFFFFF, 0xD0FFFFFF.toInt(), Shader.TileMode.CLAMP)
+            groundP.xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
             if (vis) loadScene()
         }
 
@@ -163,7 +224,36 @@ class WallService : WallpaperService() {
             photo = Bitmap.createScaledBitmap(p, tw, th, true)
             fg = BitmapFactory.decodeFile(File(d, "fg.png").path)?.let { Bitmap.createScaledBitmap(it, tw, th, true) }
             haze = BitmapFactory.decodeFile(File(d, "haze.png").path)?.let { Bitmap.createScaledBitmap(it, tw, th, true) }
+            cap = fg?.let { makeCap(it) }
             stamp = st
+        }
+
+        /** Snow resting on upward-facing edges of the cut-out: per-column distance below the nearest transparent pixel. */
+        private fun makeCap(f: Bitmap): Bitmap {
+            val w = f.width; val h = f.height
+            val src = IntArray(w * h); f.getPixels(src, 0, w, 0, 0, w, h)
+            val out = IntArray(w * h)
+            val k0 = max(6f, w * 0.010f)
+            val r = Random(11)
+            val g = FloatArray(w / 16 + 3) { 0.55f + r.nextFloat() * 0.9f }
+            val dist = IntArray(w) { 1 shl 20 }
+            for (y in 0 until h) for (x in 0 until w) {
+                val a = src[y * w + x] ushr 24
+                if (a < 110) { dist[x] = 0; continue }
+                val d = dist[x]; dist[x] = d + 1
+                val gx = x / 16f; val i0 = gx.toInt(); val t = gx - i0
+                val kk = k0 * (g[i0] + (g[i0 + 1] - g[i0]) * t)
+                if (d < kk) {
+                    val q = 1f - d / kk
+                    val al = (Math.pow(q.toDouble(), 0.6).toFloat() * (a / 255f) * 235f).toInt().coerceIn(0, 255)
+                    val nz = 0.6f + 0.4f * hash01(x shr 1, y shr 1)
+                    out[y * w + x] = ((al * nz).toInt().coerceIn(0, 255) shl 24) or 0xEAF0FA
+                } else if (d < kk * 2.6f) {
+                    val q2 = 1f - (d - kk) / (kk * 1.6f)
+                    if (hash01(x shr 1, y shr 1) < 0.16f * q2) out[y * w + x] = (210 shl 24) or 0xEAF0FA
+                }
+            }
+            return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
         }
 
         private fun weather() {
@@ -205,12 +295,13 @@ class WallService : WallpaperService() {
             }
             day = (((rgb[0] + rgb[1] + rgb[2]) / 3f - .7f) / .3f).coerceIn(0f, 1f)
             val d = when (wx) { 2 -> .93f; 3 -> .85f; 4 -> .95f; 5 -> .9f; else -> 1f }
-            val k = when (wx) { 4 -> .88f; 5 -> .82f; else -> 1f }
+            val k = when (wx) { 4 -> .94f; 5 -> .82f; else -> 1f }
             val off = when (wx) { 2 -> 8f; 4 -> 22f; 5 -> 30f; else -> 0f }
+            val cr = if (wx == 4) .95f else 1f; val cb = if (wx == 4) 1.06f else 1f
             val cm = ColorMatrix(floatArrayOf(
-                rgb[0] * d * k, 0f, 0f, 0f, off,
+                rgb[0] * d * k * cr, 0f, 0f, 0f, off,
                 0f, rgb[1] * d * k, 0f, 0f, off,
-                0f, 0f, rgb[2] * d * k, 0f, off,
+                0f, 0f, rgb[2] * d * k * cb, 0f, off,
                 0f, 0f, 0f, 1f, 0f))
             val sat = ColorMatrix().apply { setSaturation(when (wx) { 2 -> .65f; 3 -> .55f; 4 -> .6f; 5 -> .5f; else -> 1f }) }
             cm.postConcat(sat)
@@ -231,33 +322,19 @@ class WallService : WallpaperService() {
             if (cf == null || time - cfAt > 1f) { weather(); cf = filter(); cfAt = time }
             val w = sw.toFloat(); val h = sh.toFloat()
             if (w == 0f) return
-            for (i in 0 until n) {
+            val cnt = if (wx == 3) 140 else if (wx == 4) n else 0
+            for (i in 0 until cnt) {
                 val z = az[i]
-                when (wx) {
-                    3 -> {
-                        val sp = 900f + z * 1900f
-                        ay[i] += sp * dt / h; ax[i] += sp * 0.10f * dt / w
-                        if (ay[i] > 1.05f) { ay[i] = -0.12f; ax[i] = rnd.nextFloat() * 1.15f - 0.1f }
-                        if (ax[i] > 1.15f) ax[i] -= 1.25f
-                    }
-                    4 -> {
-                        ay[i] += (60f + z * 220f) * dt / h
-                        ax[i] += sin(time * (0.6f + z * 0.6f) + ph[i]) * (12f + z * 40f) * dt / w
-                        if (ay[i] > 1.08f) { ay[i] = -0.08f; ax[i] = rnd.nextFloat() }
-                    }
-                    1 -> {
-                        ay[i] -= (8f + z * 22f) * dt / h
-                        ax[i] += sin(time * 0.4f + ph[i]) * 14f * dt / w
-                        if (ay[i] < -0.05f) { ay[i] = 1.05f; ax[i] = rnd.nextFloat() }
-                    }
-                }
-            }
-            val f = fg
-            if (f != null && (wx == 1 || wx == 4)) for (i in 0 until 14) {
-                lt[i] -= dt * 0.9f
-                if (lt[i] <= 0f && rnd.nextFloat() < dt * 3f) {
-                    val px = rnd.nextInt(f.width); val py = rnd.nextInt(f.height)
-                    if (Color.alpha(f.getPixel(px, py)) > 220) { lx[i] = px.toFloat(); ly[i] = py.toFloat(); lt[i] = 1f }
+                if (wx == 3) {
+                    val sp = 900f + z * 1900f
+                    ay[i] += sp * dt / h; ax[i] += sp * 0.10f * dt / w
+                    if (ay[i] > 1.05f) { ay[i] = -0.12f; ax[i] = rnd.nextFloat() * 1.15f - 0.1f }
+                    if (ax[i] > 1.15f) ax[i] -= 1.25f
+                } else {
+                    ay[i] += (45f + z * 150f) * dt / h
+                    ax[i] += (sin(time * (0.5f + z * 0.5f) + ph[i]) * (10f + z * 28f) + 8f) * dt / w
+                    if (ay[i] > 1.06f) { ay[i] = -0.06f; ax[i] = rnd.nextFloat() }
+                    if (ax[i] > 1.08f) ax[i] -= 1.16f
                 }
             }
         }
@@ -285,17 +362,22 @@ class WallService : WallpaperService() {
 
         private fun clouds(c: Canvas, w: Float, h: Float) {
             val top = if (wx == 2) 150 else 130
+            val bottom = h * 0.56f
             place(cloudA, 7f, 14f, 0f); place(cloudB, 11f, 7f, 2f)
-            for (i in 0 until 8) {
-                val a = (top * (1f - i / 8f)).toInt()
-                strip(c, cloudA, a, i * h * 0.07f, (i + 1) * h * 0.07f + 1f, w)
-                strip(c, cloudB, a / 2, i * h * 0.07f, (i + 1) * h * 0.07f + 1f, w)
-            }
+            val id = c.saveLayer(0f, 0f, w, bottom, null)
+            nPaint.shader = cloudA; nPaint.alpha = top
+            c.drawRect(0f, 0f, w, bottom, nPaint)
+            nPaint.shader = cloudB; nPaint.alpha = top / 2
+            c.drawRect(0f, 0f, w, bottom, nPaint)
+            c.drawRect(0f, 0f, w, bottom, fadeP)
+            c.restoreToCount(id)
         }
 
         private fun particles(c: Canvas, w: Float, h: Float, near: Boolean) {
-            if (wx == 2 || wx == 5) return
-            for (i in 0 until n) {
+            if (wx != 3 && wx != 4) return
+            val cnt = if (wx == 3) 140 else n
+            val ds = w / 1080f
+            for (i in 0 until cnt) {
                 val z = az[i]
                 if ((z >= .5f) != near) continue
                 val x = ax[i] * w + tx * (10f + z * 22f); val y = ay[i] * h
@@ -305,12 +387,49 @@ class WallService : WallpaperService() {
                     pp.color = Color.argb((50 + z * 110).toInt(), 205, 220, 240)
                     c.drawLine(x, y, x - len * 0.10f, y - len, pp)
                 } else {
-                    val sz = if (wx == 4) 8f + z * z * 70f else 4f + z * 12f
-                    spriteP.alpha = if (wx == 4) (80 + z * 140).toInt() else (30 + z * 60).toInt()
-                    rf.set(x - sz / 2, y - sz / 2, x + sz / 2, y + sz / 2)
-                    c.drawBitmap(flake, null, rf, spriteP)
+                    val i4 = i % 4; val i3 = i % 3
+                    when {
+                        z < .5f -> {
+                            val sz = ds * (6f + z * 14f)
+                            spriteP.alpha = (150 + z * 90).toInt()
+                            flakeDraw(c, sharpSet[i4], x, y, sz, sz, ph[i] * 57.3f + time * (10f + ph[i] * 5f))
+                        }
+                        z < .75f -> {
+                            val sz = ds * (13f + (z - .5f) * 36f)
+                            spriteP.alpha = 215
+                            flakeDraw(c, sharpSet[i4], x, y, sz, sz * 1.15f, ph[i] * 57.3f + time * (8f + ph[i] * 4f))
+                        }
+                        z < .96f -> {
+                            val sz = ds * (24f + (z - .75f) * 105f)
+                            spriteP.alpha = (130 - (z - .75f) * 150).toInt()
+                            flakeDraw(c, blurSet[i3], x, y, sz, sz * 1.5f, sin(time * .7f + ph[i]) * 12f)
+                        }
+                        else -> {
+                            val sz = ds * (40f + (z - .96f) * 600f)
+                            spriteP.alpha = 110
+                            flakeDraw(c, bokehS, x, y, sz, sz, 0f)
+                        }
+                    }
                 }
             }
+        }
+
+        private fun flakeDraw(c: Canvas, bmp: Bitmap, x: Float, y: Float, wd: Float, ht: Float, deg: Float) {
+            c.save(); c.translate(x, y); c.rotate(deg)
+            rf.set(-wd / 2, -ht / 2, wd / 2, ht / 2)
+            c.drawBitmap(bmp, null, rf, spriteP)
+            c.restore()
+        }
+
+        /** Frosted ground: mottled white that thickens toward the bottom. */
+        private fun frost(c: Canvas, w: Float, h: Float) {
+            val y0 = h * 0.5f
+            place(frostSh, 5f, 0f, 0f)
+            val id = c.saveLayer(0f, y0, w, h, null)
+            nPaint.shader = frostSh; nPaint.alpha = 255
+            c.drawRect(0f, y0, w, h, nPaint)
+            c.drawRect(0f, y0, w, h, groundP)
+            c.restoreToCount(id)
         }
 
         private fun render(c: Canvas) {
@@ -322,7 +441,7 @@ class WallService : WallpaperService() {
                 c.drawText("WeatherWall: build a scene in the app first", 40f, h / 2, pp); return
             }
             paint.colorFilter = cf; hazePaint.colorFilter = cf; nPaint.colorFilter = cf
-            spriteP.colorFilter = if (wx == 1) warm else null
+            spriteP.colorFilter = null
             val br = 1f + 0.006f * sin(time * 0.25f)
             val sway = sin(time * 0.8f) * (when (wx) { 3 -> 6f; 4 -> 4f; else -> 2f })
             val bx0 = (w - p.width * br) / 2 + tx * 8f + sin(time * 0.11f) * 10f
@@ -334,23 +453,18 @@ class WallService : WallpaperService() {
                 place(fogA, 9f, 18f, 0f); place(fogB, 5f, 34f, 4f)
                 strip(c, fogA, 120, 0f, h, w); strip(c, fogB, 90, 0f, h, w)
             }
+            if (wx == 4) frost(c, w, h)
             if (wx == 2 || wx == 3 || wx == 4) clouds(c, w, h)
             particles(c, w, h, false)
             val f = fg
             val fx = if (f != null) (w - f.width * br) / 2 + tx * 20f + sway else 0f
             val fy = if (f != null) (h - f.height * br) / 2 + ty * 20f else 0f
             f?.let { layer(c, it, fx, fy, br, paint) }
+            if (wx == 4) cap?.let { layer(c, it, fx, fy, br, paint) }
             if (wx == 5) { place(fogC, 7f, 52f, 6f); strip(c, fogC, 70, 0f, h, w) }
             if (wx == 1) {
-                glowP.alpha = (255 * (0.55f + 0.2f * sin(time * 0.5f)) * day).toInt().coerceIn(0, 255)
+                glowP.alpha = (255 * (0.6f + 0.08f * sin(time * 0.3f)) * day).toInt().coerceIn(0, 255)
                 c.drawRect(0f, 0f, w, h, glowP)
-            }
-            if (f != null && (wx == 1 || wx == 4)) for (i in 0 until 14) if (lt[i] > 0f) {
-                val a = sin(lt[i] * PI.toFloat()); val sz = 12f + 34f * a
-                spriteP.alpha = (255 * a).toInt().coerceIn(0, 255)
-                val x = fx + lx[i] * br; val y = fy + ly[i] * br
-                rf.set(x - sz / 2, y - sz / 2, x + sz / 2, y + sz / 2)
-                c.drawBitmap(flake, null, rf, spriteP)
             }
             particles(c, w, h, true)
         }
