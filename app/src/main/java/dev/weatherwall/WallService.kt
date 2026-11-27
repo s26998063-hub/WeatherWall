@@ -146,9 +146,8 @@ class WallService : WallpaperService() {
         private var cfAt = -10f
         private var day = 1f
         private val rnd = Random(7)
-        private val sharpSet = Array(4) { clumpSprite(48, 100 + it, false) }
+        private val sharpSet = Array(3) { clumpSprite(64, 200 + it, false) }
         private val blurSet = Array(3) { clumpSprite(64, 200 + it, true) }
-        private val bokehS = bokehSprite(96)
         private val groundP = Paint()
         private val frostTex by lazy { Noise.make(128, 21, .36f, .68f) }
         private val frostSh by lazy { BitmapShader(frostTex, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT) }
@@ -279,9 +278,9 @@ class WallService : WallpaperService() {
         }
 
         private val keys = arrayOf(
-            floatArrayOf(0f, .66f, .72f, .90f), floatArrayOf(5f, .75f, .78f, .92f), floatArrayOf(7f, 1f, .85f, .75f),
-            floatArrayOf(10f, 1f, 1f, 1f), floatArrayOf(16f, 1f, 1f, 1f), floatArrayOf(18.5f, 1f, .78f, .62f),
-            floatArrayOf(20.5f, .78f, .76f, .92f), floatArrayOf(24f, .66f, .72f, .90f)
+            floatArrayOf(0f, .30f, .38f, .62f), floatArrayOf(5f, .42f, .46f, .70f), floatArrayOf(7f, 1f, .80f, .62f),
+            floatArrayOf(10f, 1f, 1f, 1f), floatArrayOf(16f, 1f, 1f, 1f), floatArrayOf(18.5f, 1f, .66f, .45f),
+            floatArrayOf(20.5f, .52f, .46f, .68f), floatArrayOf(24f, .30f, .38f, .62f)
         )
 
         private fun filter(): ColorMatrixColorFilter {
@@ -293,15 +292,16 @@ class WallService : WallpaperService() {
                 rgb = FloatArray(3) { a[it + 1] + (b[it + 1] - a[it + 1]) * f }
                 break
             }
-            day = (((rgb[0] + rgb[1] + rgb[2]) / 3f - .7f) / .3f).coerceIn(0f, 1f)
+            day = (((rgb[0] + rgb[1] + rgb[2]) / 3f - .6f) / .4f).coerceIn(0f, 1f)
             val d = when (wx) { 2 -> .93f; 3 -> .85f; 4 -> .95f; 5 -> .9f; else -> 1f }
             val k = when (wx) { 4 -> .94f; 5 -> .82f; else -> 1f }
             val off = when (wx) { 2 -> 8f; 4 -> 22f; 5 -> 30f; else -> 0f }
             val cr = if (wx == 4) .95f else 1f; val cb = if (wx == 4) 1.06f else 1f
+            val off2 = off * (0.35f + 0.65f * day)
             val cm = ColorMatrix(floatArrayOf(
-                rgb[0] * d * k * cr, 0f, 0f, 0f, off,
-                0f, rgb[1] * d * k, 0f, 0f, off,
-                0f, 0f, rgb[2] * d * k * cb, 0f, off,
+                rgb[0] * d * k * cr, 0f, 0f, 0f, off2,
+                0f, rgb[1] * d * k, 0f, 0f, off2,
+                0f, 0f, rgb[2] * d * k * cb, 0f, off2,
                 0f, 0f, 0f, 1f, 0f))
             val sat = ColorMatrix().apply { setSaturation(when (wx) { 2 -> .65f; 3 -> .55f; 4 -> .6f; 5 -> .5f; else -> 1f }) }
             cm.postConcat(sat)
@@ -387,7 +387,7 @@ class WallService : WallpaperService() {
                     pp.color = Color.argb((50 + z * 110).toInt(), 205, 220, 240)
                     c.drawLine(x, y, x - len * 0.10f, y - len, pp)
                 } else {
-                    val i4 = i % 4; val i3 = i % 3
+                    val i4 = i % 3; val i3 = i % 3
                     when {
                         z < .5f -> {
                             val sz = ds * (6f + z * 14f)
@@ -399,15 +399,10 @@ class WallService : WallpaperService() {
                             spriteP.alpha = 215
                             flakeDraw(c, sharpSet[i4], x, y, sz, sz * 1.15f, ph[i] * 57.3f + time * (8f + ph[i] * 4f))
                         }
-                        z < .96f -> {
-                            val sz = ds * (24f + (z - .75f) * 105f)
+                        else -> {
+                            val sz = ds * (24f + (z - .75f) * 88f)
                             spriteP.alpha = (130 - (z - .75f) * 150).toInt()
                             flakeDraw(c, blurSet[i3], x, y, sz, sz * 1.5f, sin(time * .7f + ph[i]) * 12f)
-                        }
-                        else -> {
-                            val sz = ds * (40f + (z - .96f) * 600f)
-                            spriteP.alpha = 110
-                            flakeDraw(c, bokehS, x, y, sz, sz, 0f)
                         }
                     }
                 }
@@ -440,8 +435,8 @@ class WallService : WallpaperService() {
                 pp.color = Color.WHITE; pp.textSize = 42f; pp.strokeWidth = 1f
                 c.drawText("WeatherWall: build a scene in the app first", 40f, h / 2, pp); return
             }
-            paint.colorFilter = cf; hazePaint.colorFilter = cf; nPaint.colorFilter = cf
-            spriteP.colorFilter = null
+            paint.colorFilter = cf; hazePaint.colorFilter = cf; nPaint.colorFilter = cf; spriteP.colorFilter = cf
+            
             val br = 1f + 0.006f * sin(time * 0.25f)
             val sway = sin(time * 0.8f) * (when (wx) { 3 -> 6f; 4 -> 4f; else -> 2f })
             val bx0 = (w - p.width * br) / 2 + tx * 8f + sin(time * 0.11f) * 10f
