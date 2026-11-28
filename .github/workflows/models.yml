@@ -1,0 +1,20 @@
+name: models
+on: workflow_dispatch
+permissions: { contents: write }
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: |
+          pip install -U onnx onnxruntime onnxsim onnx_graphsurgeon sng4onnx sne4onnx psutil protobuf
+          pip install -U tensorflow tf_keras ai_edge_litert onnx2tf
+      - run: python tools/convert_models.py
+      - name: Publish release "models"
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release view models >/dev/null 2>&1 || gh release create models --title models --notes "converted tflite models"
+          gh release upload models models_out/*.tflite --clobber

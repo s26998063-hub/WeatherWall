@@ -134,6 +134,8 @@ class WallService : WallpaperService() {
         private var photo: Bitmap? = null
         private var fg: Bitmap? = null
         private var haze: Bitmap? = null
+        private var sky: Bitmap? = null
+        private val skyP = Paint(Paint.FILTER_BITMAP_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN) }
         private var stamp = -1L
         private var tx = 0f; private var ty = 0f; private var gx = 0f; private var gy = 0f
         private var bx = 0f; private var bz = 0f
@@ -223,6 +225,7 @@ class WallService : WallpaperService() {
             photo = Bitmap.createScaledBitmap(p, tw, th, true)
             fg = BitmapFactory.decodeFile(File(d, "fg.png").path)?.let { Bitmap.createScaledBitmap(it, tw, th, true) }
             haze = BitmapFactory.decodeFile(File(d, "haze.png").path)?.let { Bitmap.createScaledBitmap(it, tw, th, true) }
+            sky = File(d, "sky.png").takeIf { it.exists() }?.let { f -> BitmapFactory.decodeFile(f.path)?.let { Bitmap.createScaledBitmap(it, tw, th, true) } }
             cap = fg?.let { makeCap(it) }
             stamp = st
         }
@@ -360,16 +363,17 @@ class WallService : WallpaperService() {
             c.drawRect(0f, y0, w, y1, nPaint)
         }
 
-        private fun clouds(c: Canvas, w: Float, h: Float) {
+        private fun clouds(c: Canvas, w: Float, h: Float, bx0: Float, by0: Float, br: Float) {
             val top = if (wx == 2) 150 else 130
-            val bottom = h * 0.56f
+            val sk = sky
+            val bottom = if (sk != null) h else h * 0.56f
             place(cloudA, 7f, 14f, 0f); place(cloudB, 11f, 7f, 2f)
             val id = c.saveLayer(0f, 0f, w, bottom, null)
             nPaint.shader = cloudA; nPaint.alpha = top
             c.drawRect(0f, 0f, w, bottom, nPaint)
             nPaint.shader = cloudB; nPaint.alpha = top / 2
             c.drawRect(0f, 0f, w, bottom, nPaint)
-            c.drawRect(0f, 0f, w, bottom, fadeP)
+            if (sk != null) layer(c, sk, bx0, by0, br, skyP) else c.drawRect(0f, 0f, w, bottom, fadeP)
             c.restoreToCount(id)
         }
 
@@ -449,7 +453,7 @@ class WallService : WallpaperService() {
                 strip(c, fogA, 120, 0f, h, w); strip(c, fogB, 90, 0f, h, w)
             }
             if (wx == 4) frost(c, w, h)
-            if (wx == 2 || wx == 3 || wx == 4) clouds(c, w, h)
+            if (wx == 2 || wx == 3 || wx == 4) clouds(c, w, h, bx0, by0, br)
             particles(c, w, h, false)
             val f = fg
             val fx = if (f != null) (w - f.width * br) / 2 + tx * 20f + sway else 0f

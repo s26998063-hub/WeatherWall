@@ -3,3 +3,6 @@ build/
 .idea/
 local.properties
 *.iml
+
+work/
+models_out/

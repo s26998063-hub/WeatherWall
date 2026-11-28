@@ -31,7 +31,7 @@ class MainActivity : Activity() {
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(40, 80, 40, 40) }
         status = TextView(this).apply { textSize = 15f }
         col.addView(status)
-        add(col, "1. Download models (~104 MB)") { work { Models.download(this) { say(it) }; say("Models ready") } }
+        add(col, "1. Download models (~130 MB)") { work { Models.download(this) { say(it) }; say("Models ready") } }
         add(col, "2. Choose photo → build scene") {
             startActivityForResult(Intent(Intent.ACTION_GET_CONTENT).setType("image/*"), 1)
         }
