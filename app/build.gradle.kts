@@ -18,6 +18,10 @@ android {
     kotlinOptions { jvmTarget = "17" }
     buildFeatures { buildConfig = true }
 }
+// litert-api pulls androidx.lifecycle 2.10.0 (needs a newer compileSdk/AGP); pin the whole group to 2.8.x
+configurations.all {
+    resolutionStrategy.eachDependency { if (requested.group == "androidx.lifecycle") useVersion("2.8.7") }
+}
 dependencies {
     implementation("com.google.ai.edge.litert:litert:2.3.0")
     implementation("com.google.ai.edge.litert:litert-gpu:2.3.0")
