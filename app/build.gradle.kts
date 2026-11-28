@@ -15,7 +15,8 @@ android {
         }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
-    kotlinOptions { jvmTarget = "17" }
+    // litert-api is built with Kotlin 2.4 metadata, our compiler is 1.9: let it read the newer metadata
+    kotlinOptions { jvmTarget = "17"; freeCompilerArgs += "-Xskip-metadata-version-check" }
     buildFeatures { buildConfig = true }
 }
 // litert-api pulls androidx.lifecycle 2.10.0 (needs a newer compileSdk/AGP); pin the whole group to 2.8.x
